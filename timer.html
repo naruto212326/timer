@@ -1,0 +1,183 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定時提醒器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        input[type="number"] {
+            padding: 10px;
+            margin: 5px;
+            width: 60px;
+            font-size: 16px;
+        }
+        input[type="range"] {
+            margin: 10px;
+            width: 120px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        label {
+            font-size: 14px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>定時提醒器</h2>
+        <div>
+            <input type="number" id="minutes" min="0" placeholder="分鐘">
+            <input type="number" id="seconds" min="0" max="59" placeholder="秒數">
+        </div>
+        <div>
+            <label for="volume">音量:</label>
+            <input type="range" id="volume" min="0" max="1" step="0.1" value="0.4">
+            <span id="volumeValue">0.4</span>
+        </div>
+        <button onclick="startTimer()">開始計時</button>
+        <button onclick="stopTimer()">停止計時</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let timerInterval = null;
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // 更新音量顯示
+        document.getElementById('volume').addEventListener('input', function() {
+            document.getElementById('volumeValue').textContent = this.value;
+        });
+
+        function playBeep() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.type = 'sine'; // 正弦波，模擬清脆音效
+            oscillator.frequency.setValueAtTime(1100, audioContext.currentTime); // 較高頻率，接近 iOS 打字音
+            
+            // 從滑桿獲取音量
+            const volume = parseFloat(document.getElementById('volume').value);
+            
+            // 快速淡入淡出，模擬短促的敲擊感
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01); // 快速淡入
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.1); // 快速淡出
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.1); // 短促音效，0.1秒
+        }
+
+        function startTimer() {
+            const minutes = parseInt(document.getElementById('minutes').value) || 0;
+            const seconds = parseInt(document.getElementById('seconds').value) || 0;
+            let totalTime = minutes * 60 + seconds;
+
+            if (totalTime <= 0) {
+                alert('請輸入有效的時間！');
+                return;
+            }
+
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
+
+            document.getElementById('status').textContent = '計時中...';
+            
+            timerInterval = setInterval(() => {
+                if (totalTime <= 0) {
+                    playBeep();
+                    alert('時間到！');
+                    totalTime = minutes * 60 + seconds; // 重置時間以實現無限循環
+                } else {
+                    totalTime--;
+                    document.getElementById('status').textContent = 
+                        `剩餘時間: ${Math.floor(totalTime / 60)}分 ${totalTime % 60}秒`;
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                document.getElementById('status').textContent = '計時已停止';
+            }
+        }
+    </script>
+</body>
+</html>
