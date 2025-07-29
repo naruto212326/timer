@@ -74,7 +74,20 @@
 
     <script>
         let timerInterval = null;
-        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let audioContext = null;
+        let lastTime = null;
+        let totalTime = 0;
+        let originalTime = 0;
+
+        // 初始化或恢復 AudioContext
+        function initAudioContext() {
+            if (!audioContext || audioContext.state === 'closed') {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
 
         // 更新音量顯示
         document.getElementById('volume').addEventListener('input', function() {
@@ -82,62 +95,80 @@
         });
 
         function playBeep() {
+            initAudioContext();
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
             
-            oscillator.type = 'sine'; // 正弦波，模擬清脆音效
-            oscillator.frequency.setValueAtTime(1100, audioContext.currentTime); // 較高頻率，接近 iOS 打字音
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(1100, audioContext.currentTime);
             
-            // 從滑桿獲取音量
             const volume = parseFloat(document.getElementById('volume').value);
-            
-            // 快速淡入淡出，模擬短促的敲擊感
             gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01); // 快速淡入
-            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.1); // 快速淡出
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.1);
             
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
             oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.1); // 短促音效，0.1秒
+            oscillator.stop(audioContext.currentTime + 0.1);
         }
 
         function startTimer() {
             const minutes = parseInt(document.getElementById('minutes').value) || 0;
             const seconds = parseInt(document.getElementById('seconds').value) || 0;
-            let totalTime = minutes * 60 + seconds;
+            totalTime = minutes * 60 + seconds;
 
             if (totalTime <= 0) {
                 document.getElementById('status').textContent = '請輸入有效的時間！';
                 return;
             }
 
+            originalTime = totalTime;
+            lastTime = performance.now();
+            initAudioContext();
+
             if (timerInterval) {
-                clearInterval(timerInterval);
+                cancelAnimationFrame(timerInterval);
             }
 
             document.getElementById('status').textContent = '計時中...';
+            tick();
+        }
+
+        function tick() {
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000; // 轉為秒
+            lastTime = currentTime;
+
+            totalTime -= deltaTime;
+
+            if (totalTime <= 0) {
+                playBeep();
+                totalTime = originalTime; // 重置時間以實現無限循環
+            }
+
+            document.getElementById('status').textContent = 
+                `剩餘時間: ${Math.floor(totalTime / 60)}分 ${Math.floor(totalTime % 60)}秒`;
             
-            timerInterval = setInterval(() => {
-                if (totalTime <= 0) {
-                    playBeep();
-                    totalTime = minutes * 60 + seconds; // 重置時間以實現無限循環
-                } else {
-                    totalTime--;
-                    document.getElementById('status').textContent = 
-                        `剩餘時間: ${Math.floor(totalTime / 60)}分 ${totalTime % 60}秒`;
-                }
-            }, 1000);
+            timerInterval = requestAnimationFrame(tick);
         }
 
         function stopTimer() {
             if (timerInterval) {
-                clearInterval(timerInterval);
+                cancelAnimationFrame(timerInterval);
                 timerInterval = null;
                 document.getElementById('status').textContent = '計時已停止';
             }
         }
+
+        // 監聽頁面可見性變化
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && timerInterval) {
+                initAudioContext();
+                lastTime = performance.now();
+            }
+        });
     </script>
 </body>
 </html>
